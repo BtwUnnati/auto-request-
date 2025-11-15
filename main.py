@@ -6,7 +6,7 @@ from pyrogram.errors import PeerIdInvalid
 
 API_ID = 
 API_HASH = 
-BOT_TOKEN = 
+BOT_TOKEN = "8395895550:AAE8ucM2C_YZ76vAxcA7zInt1Nv41Fcm6NQ"
 
 # USERBOT STRING SESSION
 STRING_SESSION = 
@@ -41,7 +41,7 @@ async def start(_, m: Message):
 
 @bot.on_message(filters.command("broadcast"))
 async def broadcast(_, m: Message):
-    if m.from_user.id != :
+    if m.from_user.id != 7843178823:
         return await m.reply("❌ Only owner can broadcast")
 
     if not m.reply_to_message:
