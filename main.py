@@ -1,235 +1,91 @@
 import os
-import json
 import asyncio
-import threading
-from queue import Queue
 from pyrogram import Client, filters
-from pyrogram.types import ChatJoinRequest
-from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder,
-    ContextTypes,
-    CommandHandler,
-    MessageHandler,
-    filters as tg_filters
-)
+from pyrogram.types import Message
+from pyrogram.errors import PeerIdInvalid
 
-# ===========================================================
-# ENV VARIABLES
-# ===========================================================
+API_ID = 
+API_HASH = 
+BOT_TOKEN = 
 
-BOT_TOKEN = "8395895550:AAE8ucM2C_YZ76vAxcA7zInt1Nv41Fcm6NQ"
-API_ID = 21705136
-API_HASH = "78730e89d196e160b0f1992018c6cb19"
-STRING_SESSION = os.environ.get("STRING_SESSION")
-USERBOT_ID = 7843178823  # Your userbot's Telegram ID
+# USERBOT STRING SESSION
+STRING_SESSION = 
 
-DATA_FILE = "accepted_users.json"
-WELCOME_MSG_FILE = "welcome_msg.txt"
+# Custom DM Message
+CUSTOM_MSG = "Welcome! Your request has been accepted."
 
-WELCOME_MSG_DEFAULT = "Hello! Your request has been approved ✔\nWelcome ❤️"
+bot = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+ubot = Client("userbot", api_id=API_ID, api_hash=API_HASH, session_string=STRING_SESSION)
 
-# ===========================================================
-# SHARED QUEUE (userbot → bot)
-# ===========================================================
-approved_queue = Queue()
+accepted_users = set()
 
-# ===========================================================
-# STORAGE FUNCTIONS
-# ===========================================================
-def load_users():
+async def accept_all_requests(chat_id, app):
     try:
-        with open(DATA_FILE, "r") as f:
-            return set(json.load(f).get("users", []))
-    except:
-        return set()
+        async for req in app.get_chat_join_requests(chat_id):
+            await app.approve_chat_join_request(chat_id, req.user.id)
+            await send_dm(req.user.id)
+    except Exception as e:
+        print("Error:", e)
 
-def save_users(u):
-    with open(DATA_FILE, "w") as f:
-        json.dump({"users": list(u)}, f)
-
-ACCEPTED_USERS = load_users()
-
-def get_welcome_msg():
+async def send_dm(user_id):
     try:
-        with open(WELCOME_MSG_FILE, "r", encoding="utf-8") as f:
-            return f.read().strip() or WELCOME_MSG_DEFAULT
+        if user_id not in accepted_users:
+            await bot.send_message(user_id, CUSTOM_MSG)
+            accepted_users.add(user_id)
     except:
-        return WELCOME_MSG_DEFAULT
+        pass
 
+@bot.on_message(filters.command("start"))
+async def start(_, m: Message):
+    await m.reply("🤖 Bot Active: Auto Accept + DM Sender + Userbot Linked")
 
-# ===========================================================
-# USERBOT (Pyrogram) - Approves ALL requests
-# ===========================================================
+@bot.on_message(filters.command("broadcast"))
+async def broadcast(_, m: Message):
+    if m.from_user.id != :
+        return await m.reply("❌ Only owner can broadcast")
 
-userbot = Client(
-    "userbot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    session_string=STRING_SESSION
-)
+    if not m.reply_to_message:
+        return await m.reply("Reply to a message to broadcast.")
 
-
-async def approve_all_requests(chat_id: int):
-    async for req in userbot.get_chat_join_requests(chat_id):
-        uid = req.user.id
-
+    sent = 0
+    for uid in accepted_users:
         try:
-            await userbot.approve_chat_join_request(chat_id, uid)
+            await bot.copy_message(uid, m.chat.id, m.reply_to_message.message_id)
+            sent += 1
         except:
             pass
 
-        # queue → bot will DM
-        approved_queue.put((uid, chat_id))
+    await m.reply(f"Broadcast sent: {sent} users")
 
+@bot.on_chat_join_request()
+async def auto_accept(client, req):
+    await client.approve_chat_join_request(req.chat.id, req.from_user.id)
+    await send_dm(req.from_user.id)
 
-@userbot.on_chat_member_updated()
-async def bot_added(client, event):
-    """When bot is added, approve old pending requests."""
-    if event.new_chat_member and event.new_chat_member.user.is_bot:
-        bot_id = event.new_chat_member.user.id
-
-        if bot_id == userbot.me.id:
-            return
-
-        print("📌 BOT added → scanning & approving old pending requests…")
-
-        await approve_all_requests(event.chat.id)
-
-
-async def userbot_main():
-    await userbot.start()
-    print("USERBOT RUNNING…\nApproving existing requests on all chats...")
-
-    # Approve all chats at startup
-    async for dialog in userbot.get_dialogs():
-        chat = dialog.chat
-        if chat.type in ["supergroup", "channel"]:
-            await approve_all_requests(chat.id)
-
-    await asyncio.Event().wait()  # keep running
-
-
-# ===========================================================
-# BOT (python-telegram-bot)
-# ===========================================================
-
-bot_app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-
-async def start_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Bot online ✔\nUse /setmsg to update DM text.")
-
-
-async def setmsg_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    text = " ".join(ctx.args).strip()
-    if not text:
-        return await update.message.reply_text("Usage: /setmsg Hello welcome…")
-
-    with open(WELCOME_MSG_FILE, "w", encoding="utf-8") as f:
-        f.write(text)
-
-    await update.message.reply_text("✔ Custom DM updated.")
-
-
-async def broadcast_cmd(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    msg = " ".join(ctx.args).strip()
-
-    if not msg:
-        return await update.message.reply_text("Usage: /broadcast text")
-
-    ok = 0
-    fail = 0
-
-    for uid in ACCEPTED_USERS:
-        try:
-            await bot_app.bot.send_message(uid, msg)
-            ok += 1
-        except:
-            fail += 1
-
-        await asyncio.sleep(0.25)
-
-    await update.message.reply_text(f"Broadcast done ✔\nSent: {ok}\nFailed: {fail}")
-
-
-async def auto_add_userbot(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """When bot is added to group → add + promote userbot."""
-    chat = update.effective_chat
-
-    # 1. add userbot
-    try:
-        await ctx.bot.add_chat_member(chat.id, USERBOT_ID)
-    except:
-        pass
-
-    # 2. promote userbot
-    try:
-        await ctx.bot.promote_chat_member(
-            chat.id,
-            USERBOT_ID,
-            can_manage_chat=True,
-            can_invite_users=True,
-            can_promote_members=True
-        )
-    except:
-        pass
-
-    await update.message.reply_text("✔ Userbot added & promoted.\nApproving old requests…")
-
-
-async def new_approve_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """New incoming bot join requests (handled by bot)."""
-    jr = update.chat_join_request
-    uid = jr.from_user.id
-
-    try:
-        await ctx.bot.approve_chat_join_request(jr.chat.id, uid)
-    except:
-        pass
-
-    # queue for bot to DM
-    approved_queue.put((uid, jr.chat.id))
-
-
-# ===========================================================
-# BOT LOOP – PROCESS QUEUE (DM sending)
-# ===========================================================
-async def queue_processor():
-    while True:
-        while not approved_queue.empty():
-            uid, chat_id = approved_queue.get()
-
-            ACCEPTED_USERS.add(uid)
-            save_users(ACCEPTED_USERS)
-
+@bot.on_message(filters.new_chat_members)
+async def bot_added(_, m: Message):
+    for user in m.new_chat_members:
+        if user.is_self:
             try:
-                await bot_app.bot.send_message(uid, get_welcome_msg())
-            except:
-                pass
-
-        await asyncio.sleep(0.5)
-
-
-# ===========================================================
-# MAIN STARTER (BOTH BOT + USERBOT)
-# ===========================================================
+                await ubot.join_chat(m.chat.id)
+                await ubot.promote_chat_member(
+                    m.chat.id,
+                    (await ubot.get_me()).id,
+                    can_invite_users=True,
+                    can_manage_chat=True,
+                    can_manage_topics=True,
+                    can_delete_messages=True
+                )
+                await m.reply("🟢 Userbot joined & promoted.")
+                await accept_all_requests(m.chat.id, bot)
+                await accept_all_requests(m.chat.id, ubot)
+            except Exception as e:
+                print("Join error:", e)
 
 async def main():
-    bot_app.add_handler(CommandHandler("start", start_cmd))
-    bot_app.add_handler(CommandHandler("setmsg", setmsg_cmd))
-    bot_app.add_handler(CommandHandler("broadcast", broadcast_cmd))
+    await ubot.start()
+    await bot.start()
+    print("BOT + USERBOT STARTED")
+    await asyncio.get_event_loop().create_future()
 
-    bot_app.add_handler(MessageHandler(tg_filters.StatusUpdate.NEW_CHAT_MEMBERS, auto_add_userbot))
-    bot_app.add_handler(MessageHandler(tg_filters.StatusUpdate.CHAT_JOIN_REQUEST, new_approve_handler))
-
-    # start bot & userbot
-    asyncio.create_task(userbot_main())
-    asyncio.create_task(queue_processor())
-
-    print("BOT RUNNING…")
-    await bot_app.run_polling()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+asyncio.run(main())
