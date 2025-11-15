@@ -18,11 +18,11 @@ from telegram.ext import (
 # ENV VARIABLES
 # ===========================================================
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+BOT_TOKEN = "8395895550:AAE8ucM2C_YZ76vAxcA7zInt1Nv41Fcm6NQ"
 API_ID = 21705136
 API_HASH = "78730e89d196e160b0f1992018c6cb19"
 STRING_SESSION = os.environ.get("STRING_SESSION")
-USERBOT_ID = int(os.environ.get("USERBOT_ID"))  # Your userbot's Telegram ID
+USERBOT_ID = 8395895550  # Your userbot's Telegram ID
 
 DATA_FILE = "accepted_users.json"
 WELCOME_MSG_FILE = "welcome_msg.txt"
